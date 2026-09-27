@@ -8,6 +8,27 @@ export const stations: Station[] = [
 ];
 export const observations: Observation[] = [];
 export const reports: QualityReport[] = [];
+
+/**
+ * 统一台站状态规则：实时、补传（迟到）、维护期间的观测都走同一套逻辑，
+ * 保证台站档案、后续接入和质量报告看到一致结果。
+ * - lastSeenAt 只随更新的观测单调前进，迟到的旧观测不回退；
+ * - offline 台站仅在收到“最新”观测（不早于已知 lastSeenAt）时恢复 online；
+ * - maintenance 是人工管理状态，观测接入不自动改变它。
+ */
+export function applyObservationToStation(station: Station, observedAt: string): void {
+  const observedTs = Date.parse(observedAt);
+  const lastSeenTs = Date.parse(station.lastSeenAt);
+  const isLatest = observedTs >= lastSeenTs;
+  if (observedTs > lastSeenTs) station.lastSeenAt = observedAt;
+  if (isLatest && station.status === 'offline') station.status = 'online';
+}
+
+/** 重复观测判定：同台站、同一观测时刻（按时间戳比较，容忍 ISO 格式差异）视为重复。 */
+export function findDuplicateObservation(stationId: string, observedAt: string): Observation | undefined {
+  const observedTs = Date.parse(observedAt);
+  return observations.find(item => item.stationId === stationId && Date.parse(item.observedAt) === observedTs);
+}
 export function createReport(stationId: string, start: string, end: string): QualityReport {
   const rows = observations.filter(item => item.stationId === stationId && item.observedAt >= start && item.observedAt <= end);
   const averageScore = rows.length ? Math.round(rows.reduce((sum, item) => sum + item.qualityScore, 0) / rows.length) : 0;
